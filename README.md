@@ -160,7 +160,30 @@ Grid-lock calibration
   ! Uncalibrated, every fault frequency would have been offset by 0.796%.
 ```
 
-### 3. Rejects skirts, keeps sidebands
+### 3. Measures how wide the carrier actually is
+
+`suppress_fundamental` fits and removes a *single sinusoid*. A carrier smeared by
+time-base drift is not one — so a large residue survives right beside it, and that
+residue is locally prominent, which makes it look exactly like a low-slip
+broken-bar sideband.
+
+statorscope measures the carrier's occupied bandwidth and refuses to look inside it:
+
+```python
+q = assess_clock(rec)
+q.carrier_halfwidth_hz    # 0.05 Hz on a clean capture, 3.9 Hz on a drifting one
+```
+
+A carrier smeared across ±3.9 Hz blinds every slip below 3.9%. Induction motors run
+at 1–5% slip, so such a recording cannot see a normally loaded machine at all — and
+the audit says so rather than reporting the residue as a fault.
+
+This was found by running the library against the real 2018 recordings that
+motivated it: it reported all three fault types on every file. The synthetic suite
+had missed it because a clean synthetic carrier suppresses perfectly, leaving no
+residue to trip over. `TestSmearedCarrier` covers it now.
+
+### 4. Rejects skirts, keeps sidebands
 
 Detection scores **prominence over a local median floor**, not absolute amplitude.
 A discrete sideband stands above its neighbourhood. A phase-noise skirt has level
@@ -175,7 +198,7 @@ The fundamental is removed by least-squares fit and subtraction in the *time*
 domain, which eliminates its leakage entirely rather than attenuating it. The
 default window is Blackman-Harris (−92 dB sidelobes).
 
-### 4. Estimates slip without a tachometer
+### 5. Estimates slip without a tachometer
 
 Slip is the crux of MCSA: the sidebands move with it, and a typed-in nameplate RPM
 is usually wrong. statorscope searches the sideband geometry directly, then refines
@@ -188,7 +211,7 @@ est = estimate_slip(spectrum, motor)
 print(est.slip, est.rpm, est.confident)  # 0.0301  1454 rpm  True
 ```
 
-### 5. Ships the fault models, correctly
+### 6. Ships the fault models, correctly
 
 | Mechanism | Signature |
 |---|---|

@@ -161,3 +161,69 @@ class TestThresholdCalibration:
         rec, _ = synthesize(MOTOR, slip=0.03, broken_bar_dbc=-50, fs=5000, duration_s=20)
         spec = _residual_spectrum(rec)
         assert spec.prominence_db(47.0, tol_hz=0.15) > MIN_PROMINENCE_DB + 10.0
+
+
+class TestSmearedCarrier:
+    """Regression: a drift-smeared carrier must not be mistaken for a fault.
+
+    suppress_fundamental fits and removes a single sinusoid. A carrier smeared by
+    time-base drift is not one, so a large residue survives immediately beside it
+    -- and that residue is locally prominent, so it looks exactly like a low-slip
+    broken-bar sideband.
+
+    This was found by running the library on the real 2018 recordings that
+    motivated it, where it reported all three fault types on every file. The
+    synthetic suite missed it because a clean synthetic carrier suppresses
+    perfectly, leaving no residue to trip over.
+    """
+
+    def test_clean_carrier_occupies_about_one_bin(self):
+        rec, _ = synthesize(MOTOR, slip=0.03, broken_bar_dbc=-42, fs=5000, duration_s=20)
+        halfwidth = _residual_spectrum(rec).carrier_halfwidth_hz()
+        assert halfwidth < 0.5, f"clean carrier measured {halfwidth:.3f} Hz wide"
+
+    def test_smeared_carrier_is_measured_as_wide(self):
+        rec, _ = millis_jitter_recording(MOTOR, slip=0.03, broken_bar_dbc=None)
+        halfwidth = _residual_spectrum(rec).carrier_halfwidth_hz()
+        assert halfwidth > 1.0, f"smeared carrier measured only {halfwidth:.3f} Hz wide"
+
+    def test_slip_search_refuses_to_look_inside_the_carrier(self):
+        """The original failure: slip pinned to the bottom of the range, score +40 dB."""
+        rec, truth = millis_jitter_recording(MOTOR, slip=0.03, broken_bar_dbc=None)
+        assert truth.healthy
+        est = estimate_slip(_residual_spectrum(rec), MOTOR)
+        assert not est.confident, (
+            f"slip search locked onto carrier residue at slip={est.slip:.4f} "
+            f"with score {est.score_db:+.1f} dB"
+        )
+
+    def test_smeared_healthy_recording_claims_nothing(self):
+        rec, truth = millis_jitter_recording(MOTOR, slip=0.03, broken_bar_dbc=None)
+        assert truth.healthy
+        report = diagnose(rec, MOTOR)
+        assert not report.supported
+        assert not any(f.detected for f in report.faults), (
+            "smeared carrier produced fault detections on a healthy machine"
+        )
+
+    def test_audit_refuses_when_the_carrier_blinds_normal_slip(self):
+        rec, _ = millis_jitter_recording(MOTOR, slip=0.03, broken_bar_dbc=None)
+        q = diagnose(rec, MOTOR).clock
+        assert q.carrier_halfwidth_hz > 1.0
+        assert q.verdict is TrustLevel.UNRELIABLE
+        assert not q.trustworthy
+
+    def test_a_real_fault_on_a_clean_carrier_is_still_found(self):
+        """The guard must not be so wide that it suppresses genuine detections."""
+        rec, _ = synthesize(MOTOR, slip=0.03, broken_bar_dbc=-45, fs=5000, duration_s=20)
+        report = diagnose(rec, MOTOR)
+        brb = next(f for f in report.faults if f.kind == "broken_rotor_bar")
+        assert brb.detected
+        assert report.supported
+
+    @pytest.mark.parametrize("slip", [0.02, 0.03, 0.05])
+    def test_guard_does_not_block_normal_operating_slip(self, slip: float):
+        rec, _ = synthesize(MOTOR, slip=slip, broken_bar_dbc=-42, fs=5000, duration_s=20)
+        est = estimate_slip(_residual_spectrum(rec), MOTOR)
+        assert est.confident
+        assert est.slip == pytest.approx(slip, abs=0.002)

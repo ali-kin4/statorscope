@@ -1,6 +1,6 @@
 [project]
 name = "statorscope"
-version = "0.1.0"
+version = "0.2.0"
 description = "Motor Current Signature Analysis that knows when to refuse. Detect broken rotor bars, stator faults and eccentricity from three-phase current - and get told when your data can't support the answer."
 readme = "README.md"
 requires-python = ">=3.11"

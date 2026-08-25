@@ -110,6 +110,64 @@ class Spectrum:
             return float(np.median(d_seg)) if d_seg.size else -np.inf
         return float(np.median(d_seg[keep]))
 
+    def carrier_halfwidth_hz(
+        self,
+        *,
+        far_field_hz: tuple[float, float] = (8.0, 20.0),
+        margin_db: float = 6.0,
+        max_offset_hz: float = 8.0,
+    ) -> float:
+        """How far the carrier's own energy extends either side of its peak.
+
+        A pure tone occupies one window main lobe. A carrier smeared by time-base
+        drift occupies far more, and :func:`suppress_fundamental` -- which fits and
+        removes a *single* sinusoid -- cannot remove the smeared part. What is left
+        is a large residue immediately beside the carrier that looks exactly like a
+        low-slip fault sideband to any detector that goes looking there.
+
+        This measures the damage directly: walk outward until the carrier's skirt
+        drops to within ``margin_db`` of the far-field floor on both sides and
+        stays there.
+
+        Args:
+            far_field_hz: Offset band used as the clean reference floor.
+            margin_db: How close to that floor counts as "the carrier has ended".
+            max_offset_hz: Give up beyond this offset.
+
+        Returns:
+            Half-width in Hz. Roughly one bin for a clean tone; much larger when
+            the time base drifted. Frequencies within this of the carrier carry no
+            usable fault information.
+        """
+        f0 = self.reference_hz
+        offset = np.abs(self.freq - f0)
+        dbc = self.dbc
+        far = (offset >= far_field_hz[0]) & (offset <= far_field_hz[1])
+        if not np.any(far):
+            return float(self.resolution_hz)
+        threshold = float(np.median(dbc[far])) + margin_db
+
+        # Compare the *median* level in a ring at each offset, not the peak. Peak
+        # comparison is hopeless against noise: the maximum of a handful of Rayleigh
+        # bins clears any median by well over 6 dB, so a clean spectrum would look
+        # like an endlessly wide carrier. A median tracks the skirt and ignores the
+        # spikes.
+        step = max(self.resolution_hz, max_offset_hz / 200.0)
+        ring = max(step, 3.0 * self.resolution_hz)
+        below = 0
+        needed = 3  # sustained, so one lucky dip inside the skirt does not end it
+        probe = step
+        while probe <= max_offset_hz:
+            in_ring = np.abs(offset - probe) <= ring
+            if np.any(in_ring) and float(np.median(dbc[in_ring])) <= threshold:
+                below += 1
+                if below >= needed:
+                    return float(max(probe - (needed - 1) * step, self.resolution_hz))
+            else:
+                below = 0
+            probe += step
+        return float(max_offset_hz)
+
     def prominence_db(
         self,
         hz: float,

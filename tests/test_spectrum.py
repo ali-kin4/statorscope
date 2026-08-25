@@ -130,3 +130,42 @@ class TestResampleUniform:
         rec = Recording.from_array(np.zeros((100, 3)), fs=100.0)
         with pytest.raises(ValueError, match="timestamps"):
             resample_uniform(rec)
+
+
+class TestCarrierHalfwidth:
+    """The measurement that separates a clean carrier from a smeared one."""
+
+    def test_pure_tone_is_one_bin_wide(self):
+        fs, n = 2000.0, 40_000
+        rng = np.random.default_rng(0)
+        x = _tone(50.0, fs, n) + rng.normal(0, 1e-4, n)
+        spec = compute_spectrum(x, fs, reference_hz=50.0)
+        assert spec.carrier_halfwidth_hz() < 0.5
+
+    def test_noise_alone_does_not_read_as_a_wide_carrier(self):
+        """Peak-vs-median comparison fails here; the median-ring version must not."""
+        fs, n = 2000.0, 40_000
+        rng = np.random.default_rng(1)
+        x = _tone(50.0, fs, n) + rng.normal(0, 0.01, n)
+        spec = compute_spectrum(x, fs, reference_hz=50.0)
+        assert spec.carrier_halfwidth_hz() < 1.0
+
+    def test_frequency_modulated_carrier_reads_as_wide(self):
+        """A carrier whose frequency wanders is smeared, and must be reported so."""
+        fs, n = 2000.0, 40_000
+        t = np.arange(n) / fs
+        wander = 2.0 * np.sin(2 * np.pi * 0.05 * t)  # +/- 2 Hz drift
+        x = np.cos(2 * np.pi * 50.0 * t + 2 * np.pi * np.cumsum(wander) / fs)
+        spec = compute_spectrum(x, fs, reference_hz=50.0)
+        assert spec.carrier_halfwidth_hz() > 1.0
+
+    def test_wider_modulation_measures_wider(self):
+        fs, n = 2000.0, 40_000
+        t = np.arange(n) / fs
+
+        def smeared(depth_hz: float) -> float:
+            wander = depth_hz * np.sin(2 * np.pi * 0.05 * t)
+            x = np.cos(2 * np.pi * 50.0 * t + 2 * np.pi * np.cumsum(wander) / fs)
+            return compute_spectrum(x, fs, reference_hz=50.0).carrier_halfwidth_hz()
+
+        assert smeared(4.0) > smeared(1.0)

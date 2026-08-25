@@ -222,8 +222,18 @@ def estimate_slip(
     candidates = np.linspace(lo, hi, n_steps)
     best_slip, best_score, best_primary = lo, -np.inf, -np.inf
 
+    # Anything inside the carrier's own occupied bandwidth is carrier residue, not
+    # a sideband. suppress_fundamental removes a single sinusoid; a carrier smeared
+    # by time-base drift is not one, so a large residue survives right beside it and
+    # is locally prominent. Searching there finds that residue every time and
+    # returns an arbitrarily small slip with a huge score.
+    guard_hz = spectrum.carrier_halfwidth_hz()
+
     def pair_prominence(order: int, s: float) -> float:
         """Weakest of the two order-``k`` sidebands, or -inf if unusable."""
+        offset = 2.0 * order * s * f0
+        if offset <= guard_hz:
+            return -np.inf
         f_low, f_high = (1.0 - 2.0 * order * s) * f0, (1.0 + 2.0 * order * s) * f0
         if f_low <= 0 or f_high >= nyquist:
             return -np.inf
@@ -254,7 +264,20 @@ def estimate_slip(
     # interpolated peak positions give slip directly from their separation,
     # 2s*f0 either side of the carrier, which is an order of magnitude tighter.
     method = "sideband-pair prominence search"
-    if np.isfinite(best_score) and best_score >= SLIP_CONFIDENCE_DB:
+    if not np.isfinite(best_score):
+        # Every candidate sat inside the carrier. The recording cannot resolve any
+        # slip in the searched range, which is a real answer, not an error.
+        return SlipEstimate(
+            slip=lo,
+            rpm=motor.synchronous_rpm * (1.0 - lo),
+            score_db=0.0,
+            method=(
+                f"no usable sideband: carrier occupies +/-{guard_hz:.2f} Hz, which "
+                f"swallows every slip below {guard_hz / (2 * f0):.4f}"
+            ),
+            searched=slip_range,
+        )
+    if best_score >= SLIP_CONFIDENCE_DB:
         f_low_hat, _ = spectrum.peak_near((1.0 - 2.0 * best_slip) * f0, tol_hz)
         f_high_hat, _ = spectrum.peak_near((1.0 + 2.0 * best_slip) * f0, tol_hz)
         refined = (f_high_hat - f_low_hat) / (4.0 * f0)

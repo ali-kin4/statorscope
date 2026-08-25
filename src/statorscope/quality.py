@@ -40,6 +40,15 @@ SIDEBAND_OFFSET_BAND_HZ = (0.5, 6.0)
 #: Timing-error components slower than this are counted as drift, not jitter.
 DRIFT_CUTOFF_HZ = 1.0
 
+#: Carrier smearing that blinds slip at or above this level makes a recording
+#: unusable: induction motors run at roughly 1-5% slip, so a carrier that covers
+#: 2% has swallowed the sidebands of a normally loaded machine.
+BLIND_SLIP_UNRELIABLE = 0.02
+
+#: Below this, smearing only hides very lightly loaded machines -- worth a warning
+#: and a downgrade, not a refusal.
+BLIND_SLIP_MARGINAL = 0.005
+
 #: Headroom (dB) of fault level over the measured floor required for each verdict.
 _GOOD_HEADROOM_DB = 10.0
 _MARGINAL_HEADROOM_DB = 0.0
@@ -79,6 +88,10 @@ class ClockQuality:
     predicted_jitter_floor_dbc: float
     """What the aperture-jitter model expects. Diagnostic only."""
 
+    carrier_halfwidth_hz: float
+    """How far the carrier's own energy spreads. Fault frequencies inside this
+    offset carry no information -- the carrier is sitting on them."""
+
     jitter_rms_s: float
     """Fast timing jitter, the component that lands in the sideband band."""
 
@@ -112,6 +125,8 @@ class ClockQuality:
             lines.append(f"  slow drift (rms)    : {self.drift_rms_s * 1e3:.1f} ms")
             lines.append(f"  timestamp resolution: {self.timestamp_resolution_s * 1e6:.0f} us")
         lines += [
+            f"  carrier halfwidth   : {self.carrier_halfwidth_hz:.3f} Hz "
+            f"(blinds slip below {self.carrier_halfwidth_hz / 100.0:.4f})",
             f"  MEASURED floor      : {self.measured_floor_dbc:+.1f} dBc "
             f"(offset {SIDEBAND_OFFSET_BAND_HZ[0]}-{SIDEBAND_OFFSET_BAND_HZ[1]} Hz)",
             f"  incipient fault at  : {self.reference_fault_dbc:+.1f} dBc",
@@ -270,22 +285,49 @@ def measure_noise_floor_dbc(
     Returns:
         Median level in dBc, or ``-inf`` if no carrier could be located.
     """
+    floor, _ = _floor_and_carrier(
+        recording, line_hz=line_hz, phase=phase, offset_band_hz=offset_band_hz, window=window
+    )
+    return floor
+
+
+def _floor_and_carrier(
+    recording: Recording,
+    *,
+    line_hz: float,
+    phase: int | str,
+    offset_band_hz: tuple[float, float],
+    window: str,
+) -> tuple[float, float]:
+    """Return ``(measured_floor_dbc, carrier_halfwidth_hz)``.
+
+    The floor is measured *outside* the carrier's occupied bandwidth. Measuring
+    through it reports the carrier's own skirt as though it were noise, which is
+    both wrong and, worse, flattering: a badly smeared carrier produces a high
+    median that still sits below the fault reference, so the recording passes.
+    """
     x = recording.phase(phase)
     carrier = compute_spectrum(x, recording.fs, window=window, reference_hz=line_hz)
     if carrier.reference_amplitude <= 0:
-        return -math.inf
+        return -math.inf, 0.0
 
     resid = suppress_fundamental(x, recording.fs, line_hz)
     spec = compute_spectrum(resid, recording.fs, window=window, reference_hz=line_hz)
     spec = spec.rereferenced(carrier.reference_hz, carrier.reference_amplitude)
 
+    halfwidth = spec.carrier_halfwidth_hz()
     f0 = carrier.reference_hz
     lo, hi = offset_band_hz
+    lo = max(lo, halfwidth)
+    if lo >= hi:
+        # The carrier fills the entire sideband band; there is no clean region left.
+        return math.inf, halfwidth
+
     offset = np.abs(spec.freq - f0)
     band = (offset >= lo) & (offset <= hi)
     if not np.any(band):
-        return -math.inf
-    return float(np.median(spec.dbc[band]))
+        return -math.inf, halfwidth
+    return float(np.median(spec.dbc[band])), halfwidth
 
 
 def assess_clock(
@@ -319,7 +361,7 @@ def assess_clock(
     n = len(recording)
     notes: list[str] = []
 
-    floor = measure_noise_floor_dbc(
+    floor, halfwidth = _floor_and_carrier(
         recording, line_hz=line_hz, phase=phase, offset_band_hz=offset_band_hz, window=window
     )
     headroom = reference_fault_dbc - floor
@@ -364,7 +406,11 @@ def assess_clock(
             "fault is missed, pass timestamps to find out whether the clock is why."
         )
 
-    if not math.isfinite(floor):
+    # A recording has to clear two independent hurdles, and the worse one wins:
+    #   1. the floor must sit below the fault level (is there room to see it?)
+    #   2. the carrier must not be sitting on the sidebands (is there anywhere to look?)
+    # Reporting only the first is how a badly smeared recording reads as GOOD.
+    if not math.isfinite(floor) and floor < 0:
         verdict = TrustLevel.UNKNOWN
         notes.append("No carrier could be located, so the noise floor is undefined.")
     elif headroom >= _GOOD_HEADROOM_DB:
@@ -383,6 +429,24 @@ def assess_clock(
             "distinguished from acquisition noise. Fix the acquisition, not the maths."
         )
 
+    blind_slip = halfwidth / (2.0 * line_hz)
+    if verdict is not TrustLevel.UNKNOWN and blind_slip >= BLIND_SLIP_UNRELIABLE:
+        verdict = TrustLevel.UNRELIABLE
+        notes.append(
+            f"The carrier is smeared across +/-{halfwidth:.2f} Hz, blinding every slip below "
+            f"{100 * blind_slip:.2f}%. Induction motors run at 1-5% slip, so this recording "
+            "cannot see the sidebands of a normally loaded machine at all - whatever the "
+            "noise floor says. This is a smeared time base: see grid_lock and "
+            "resample_uniform, and fix the acquisition clock."
+        )
+    elif verdict is TrustLevel.GOOD and blind_slip >= BLIND_SLIP_MARGINAL:
+        verdict = TrustLevel.MARGINAL
+        notes.append(
+            f"The carrier is smeared across +/-{halfwidth:.2f} Hz, so slip below "
+            f"{100 * blind_slip:.2f}% cannot be resolved. Lightly loaded machines will read "
+            "as healthy because their sidebands are underneath the carrier."
+        )
+
     return ClockQuality(
         verdict=verdict,
         n_samples=n,
@@ -392,6 +456,7 @@ def assess_clock(
         reference_fault_dbc=reference_fault_dbc,
         headroom_db=headroom,
         predicted_jitter_floor_dbc=predicted,
+        carrier_halfwidth_hz=halfwidth,
         jitter_rms_s=jitter_rms,
         drift_rms_s=drift_rms,
         relative_jitter=relative,
