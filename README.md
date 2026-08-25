@@ -171,7 +171,7 @@ statorscope measures the carrier's occupied bandwidth and refuses to look inside
 
 ```python
 q = assess_clock(rec)
-q.carrier_halfwidth_hz    # 0.05 Hz on a clean capture, 3.9 Hz on a drifting one
+q.carrier_halfwidth_hz  # 0.05 Hz on a clean capture, 3.9 Hz on a drifting one
 ```
 
 A carrier smeared across ±3.9 Hz blinds every slip below 3.9%. Induction motors run
