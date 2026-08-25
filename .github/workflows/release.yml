@@ -1,0 +1,95 @@
+name: Release
+
+# Publishes to PyPI via Trusted Publishing (OIDC). No API token is stored
+# anywhere: PyPI verifies the workflow's short-lived identity token instead.
+#
+# One-time setup on PyPI (https://pypi.org/manage/account/publishing/):
+#   PyPI project name : statorscope
+#   Owner             : ali-kin4
+#   Repository        : statorscope
+#   Workflow filename : release.yml
+#   Environment       : pypi
+#
+# After that, publishing a GitHub Release runs this workflow automatically.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and validate only; do not publish"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Verify the tag matches the package version
+        if: github.event_name == 'release'
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(python3 -c \
+            "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          echo "tag=$tag package=$pkg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag $tag does not match project version $pkg"
+            exit 1
+          fi
+
+      - name: Build
+        run: uv build
+
+      - name: Check metadata renders on PyPI
+        run: uvx twine check --strict dist/*
+
+      - name: Install the built wheel and smoke-test it
+        run: |
+          set -euo pipefail
+          uv venv /tmp/verify
+          VIRTUAL_ENV=/tmp/verify uv pip install "$(ls dist/*.whl)[cli]"
+          VIRTUAL_ENV=/tmp/verify uv run --no-project statorscope --version
+          VIRTUAL_ENV=/tmp/verify uv run --no-project statorscope demo --fault -42
+          VIRTUAL_ENV=/tmp/verify uv run --no-project python -c \
+            "import statorscope; print('import ok', statorscope.__version__)"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    if: github.event_name == 'release' || inputs.dry_run == false
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/statorscope
+    permissions:
+      id-token: write # required for Trusted Publishing
+    steps:
+      - uses: astral-sh/setup-uv@v10.0.1
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish
+        run: uv publish --trusted-publishing always
