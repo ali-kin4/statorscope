@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "Ali Kasra Ghanavati" }]
+authors = [{ name = "Ali Jabbary" }]
 keywords = [
     "mcsa", "motor-current-signature-analysis", "condition-monitoring",
     "predictive-maintenance", "induction-motor", "fault-diagnosis",
