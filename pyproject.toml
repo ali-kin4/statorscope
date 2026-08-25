@@ -32,9 +32,9 @@ plot = ["matplotlib>=3.8"]
 all = ["statorscope[cli,plot]"]
 
 [project.urls]
-Homepage = "https://github.com/kasraghanavati/statorscope"
-Repository = "https://github.com/kasraghanavati/statorscope"
-Issues = "https://github.com/kasraghanavati/statorscope/issues"
+Homepage = "https://github.com/ali-kin4/statorscope"
+Repository = "https://github.com/ali-kin4/statorscope"
+Issues = "https://github.com/ali-kin4/statorscope/issues"
 
 [project.scripts]
 statorscope = "statorscope.cli:app"

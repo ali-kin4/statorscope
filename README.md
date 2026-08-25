@@ -2,7 +2,7 @@
 
 **Motor Current Signature Analysis that knows when to refuse.**
 
-[![CI](https://github.com/kasraghanavati/statorscope/actions/workflows/ci.yml/badge.svg)](https://github.com/kasraghanavati/statorscope/actions/workflows/ci.yml)
+[![CI](https://github.com/ali-kin4/statorscope/actions/workflows/ci.yml/badge.svg)](https://github.com/ali-kin4/statorscope/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://pypi.org/project/statorscope/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
@@ -263,7 +263,7 @@ bad clock must never come back `supported`.**
 ## Contributing
 
 ```console
-git clone https://github.com/kasraghanavati/statorscope
+git clone https://github.com/ali-kin4/statorscope
 cd statorscope
 uv sync --all-extras
 uv run pytest
