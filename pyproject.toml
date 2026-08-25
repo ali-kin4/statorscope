@@ -1,6 +1,6 @@
 [project]
 name = "statorscope"
-version = "0.2.0"
+version = "0.3.0"
 description = "Motor Current Signature Analysis that knows when to refuse. Detect broken rotor bars, stator faults and eccentricity from three-phase current - and get told when your data can't support the answer."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -40,7 +40,13 @@ Issues = "https://github.com/ali-kin4/statorscope/issues"
 statorscope = "statorscope.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8.2", "pytest-cov>=5.0", "ruff>=0.6", "mypy>=1.11"]
+dev = [
+    "pytest>=8.2",
+ "pytest-cov>=5.0",
+ "ruff>=0.6",
+ "mypy>=1.11",
+ "openpyxl>=3.1.5",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -67,7 +73,7 @@ strict = true
 warn_return_any = false
 disallow_untyped_decorators = false
 [[tool.mypy.overrides]]
-module = ["scipy.*", "matplotlib.*"]
+module = ["scipy.*", "matplotlib.*", "openpyxl.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -241,6 +241,47 @@ drop straight into CI or a monitoring cron.
 
 ---
 
+## Benchmark: labelled public data
+
+Validated against **BBIM2023** ([Mendeley Data](https://data.mendeley.com/datasets/f5ksvkrp73/1),
+CC BY 4.0) — two induction motors, 0–3 broken rotor bars at full load, labelled,
+produced independently of this library.
+
+| case | label | true slip | est. slip | error | detected | level | severity |
+|---|---|---|---|---|---|---|---|
+| M24Ns_29Nb/H | healthy | 0.0393 | 0.0778 | — | **no** | — | — |
+| M24Ns_29Nb/1B | 1 broken bar | 0.0405 | 0.0405 | **0.0000** | **yes** | −38.9 dBc | moderate |
+| M24Ns_29Nb/2B | 2 broken bars | 0.0421 | 0.0421 | **0.0000** | **yes** | −32.3 dBc | severe |
+| M24Ns_29Nb/3B | 3 broken bars | 0.0439 | 0.0443 | **0.0004** | **yes** | −28.5 dBc | severe |
+| M36Ns_44Nb/H | healthy | n/a | 0.0603 | — | **no** | — | — |
+| M36Ns_44Nb/1B | 1 broken bar | n/a | 0.0490 | — | **yes** | −44.8 dBc | moderate |
+| M36Ns_44Nb/2B | 2 broken bars | n/a | 0.0503 | — | **yes** | −36.7 dBc | moderate |
+| M36Ns_44Nb/3B | 3 broken bars | n/a | 0.0531 | — | **yes** | −31.1 dBc | severe |
+
+**8/8 correct. No false positives, no false negatives.** Sensorless slip error against
+the simulator's ground-truth rotor speed: **mean 0.0002, worst 0.0004** — with no
+tachometer and no nameplate speed.
+
+Severity rises monotonically with broken-bar count in both motors independently
+(−38.9 → −32.3 → −28.5 and −44.8 → −36.7 → −31.1), which is the physics, not a fit.
+
+Reproduce it:
+
+```console
+# download both workbooks from the Mendeley link above
+uv run --with openpyxl python benchmarks/bbim2023.py path/to/*.xlsx
+```
+
+**Honest caveat: BBIM2023 is simulated**, from a validated motor model. It exercises
+the analysis, not the sensor chain — so it proves the maths, while the clock audit
+above is what covers the acquisition. Benchmarking against experimental labelled data
+(IEEE DataPort's broken-bar database) is still open; it needs an account and a 6.7 GB
+download.
+
+This benchmark earned its keep immediately: it exposed two real bugs that the
+synthetic suite could not, because both only appear on near-noiseless data. See
+`TestAbsoluteFaultFloor` and `TestNoiselessCarrierWidth`.
+
 ## Testing against known truth
 
 The synthesiser generates three-phase current with faults injected at *specified*

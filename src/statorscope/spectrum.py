@@ -115,6 +115,7 @@ class Spectrum:
         *,
         far_field_hz: tuple[float, float] = (8.0, 20.0),
         margin_db: float = 6.0,
+        harmless_dbc: float = -60.0,
         max_offset_hz: float = 8.0,
     ) -> float:
         """How far the carrier's own energy extends either side of its peak.
@@ -132,6 +133,9 @@ class Spectrum:
         Args:
             far_field_hz: Offset band used as the clean reference floor.
             margin_db: How close to that floor counts as "the carrier has ended".
+            harmless_dbc: A skirt this far below the carrier can no longer mask a
+                fault, so the walk stops regardless of the noise floor. Without
+                this, noiseless data saturates the search.
             max_offset_hz: Give up beyond this offset.
 
         Returns:
@@ -145,7 +149,14 @@ class Spectrum:
         far = (offset >= far_field_hz[0]) & (offset <= far_field_hz[1])
         if not np.any(far):
             return float(self.resolution_hz)
-        threshold = float(np.median(dbc[far])) + margin_db
+
+        # Stop when the skirt reaches the noise floor OR has fallen far enough
+        # below the carrier to be harmless, whichever comes first. The second
+        # condition is essential: on near-noiseless data (a simulation, or a very
+        # clean acquisition) the floor sits hundreds of dB down, the first
+        # condition is never satisfiable, and the walk saturates at max_offset_hz
+        # -- reporting the carrier as impossibly wide and blinding every slip.
+        threshold = max(float(np.median(dbc[far])) + margin_db, harmless_dbc)
 
         # Compare the *median* level in a ring at each offset, not the peak. Peak
         # comparison is hopeless against noise: the maximum of a handful of Rayleigh

@@ -34,6 +34,13 @@ SLIP_CONFIDENCE_DB = 15.0
 #: Upper and lower sidebands must match within this many dB to be a credible pair.
 MAX_ASYMMETRY_DB = 12.0
 
+#: No component weaker than this is ever claimed as a fault, however prominent it
+#: looks. Real broken-bar sidebands sit at -25 to -55 dBc; prominence is measured
+#: against a *local* floor, so on near-noiseless data (a simulation, or a very
+#: clean rig) numerical residue tens of dB below anything physical still scores
+#: high prominence. This is the absolute sanity bound underneath the relative one.
+MIN_FAULT_LEVEL_DBC = -70.0
+
 #: Weight given to second-order (k=2) sideband confirmation in the slip search.
 #: Without it, slip ``s`` and slip ``2s`` are indistinguishable: the k=1 sidebands
 #: of ``2s`` land exactly on the k=2 sidebands of ``s``.
@@ -308,6 +315,7 @@ def evaluate_signature(
     min_prominence_db: float = MIN_PROMINENCE_DB,
     tol_hz: float = 0.15,
     floor_dbc: float = -np.inf,
+    min_level_dbc: float = MIN_FAULT_LEVEL_DBC,
 ) -> FaultResult:
     """Interrogate every frequency in a signature and decide whether it fired.
 
@@ -318,6 +326,8 @@ def evaluate_signature(
         tol_hz: Peak search half-width.
         floor_dbc: Hard floor from the clock audit; candidates below this are
             rejected regardless of prominence.
+        min_level_dbc: Absolute sanity bound. Nothing weaker is claimed as a fault
+            no matter how prominent it is locally.
 
     Returns:
         A :class:`FaultResult` carrying per-frequency evidence.
@@ -335,7 +345,7 @@ def evaluate_signature(
     for f_hz, label in zip(usable.frequencies, usable.labels, strict=True):
         level = spectrum.level_dbc(float(f_hz), tol_hz)
         prom = spectrum.prominence_db(float(f_hz), tol_hz=tol_hz)
-        passed = bool(prom >= min_prominence_db and level > floor_dbc)
+        passed = bool(prom >= min_prominence_db and level > floor_dbc and level >= min_level_dbc)
         evidence.append(Evidence(label, float(f_hz), level, prom, passed))
 
     hits = [e for e in evidence if e.passed]

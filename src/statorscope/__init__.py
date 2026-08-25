@@ -15,6 +15,7 @@ Quickstart:
 from __future__ import annotations
 
 from .calibrate import GridLock, grid_lock, resample_uniform
+from .datasets import DATASETS, DatasetInfo, LabelledRecording, load_bbim2023
 from .detect import (
     Diagnosis,
     Evidence,
@@ -49,16 +50,19 @@ from .spectrum import (
 )
 from .synth import GroundTruth, millis_jitter_recording, synthesize
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
+    "DATASETS",
     "ClockQuality",
+    "DatasetInfo",
     "Diagnosis",
     "Evidence",
     "FaultResult",
     "FaultSignature",
     "GridLock",
     "GroundTruth",
+    "LabelledRecording",
     "Motor",
     "Recording",
     "SlipEstimate",
@@ -76,6 +80,7 @@ __all__ = [
     "evaluate_signature",
     "grid_lock",
     "jitter_noise_floor_dbc",
+    "load_bbim2023",
     "measure_noise_floor_dbc",
     "millis_jitter_recording",
     "resample_uniform",

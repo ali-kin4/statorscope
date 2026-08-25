@@ -13,7 +13,8 @@ from statorscope import (
     millis_jitter_recording,
     synthesize,
 )
-from statorscope.detect import MIN_PROMINENCE_DB, residual_spectrum
+from statorscope.detect import MIN_FAULT_LEVEL_DBC, MIN_PROMINENCE_DB, residual_spectrum
+from statorscope.quality import INCIPIENT_FAULT_DBC
 
 MOTOR = Motor(pole_pairs=2, rotor_bars=28, line_hz=50.0)
 
@@ -227,3 +228,68 @@ class TestSmearedCarrier:
         est = estimate_slip(_residual_spectrum(rec), MOTOR)
         assert est.confident
         assert est.slip == pytest.approx(slip, abs=0.002)
+
+
+class TestAbsoluteFaultFloor:
+    """Regression: prominence alone is not enough on near-noiseless data.
+
+    Prominence is measured against a *local* floor. On a simulation or a very clean
+    rig, numerical residue tens of dB below anything physical still scores high
+    prominence. Found by benchmarking against the public BBIM2023 dataset, where a
+    healthy motor was reported faulty at -148 dBc.
+    """
+
+    def test_absurdly_weak_component_is_never_a_fault(self):
+        rec, truth = synthesize(
+            MOTOR, slip=0.03, broken_bar_dbc=None, fs=5000, duration_s=20, noise_floor_dbc=-200.0
+        )
+        assert truth.healthy
+        report = diagnose(rec, MOTOR)
+        assert not any(f.detected for f in report.faults), (
+            "numerical residue on a noiseless healthy machine was reported as a fault"
+        )
+
+    def test_the_bound_sits_below_any_real_fault(self):
+        """It must reject numerical noise without rejecting weak genuine faults."""
+        assert MIN_FAULT_LEVEL_DBC < INCIPIENT_FAULT_DBC
+
+    def test_an_incipient_fault_still_clears_the_bound(self):
+        rec, _ = synthesize(MOTOR, slip=0.03, broken_bar_dbc=-55, fs=5000, duration_s=30)
+        report = diagnose(rec, MOTOR)
+        brb = next(f for f in report.faults if f.kind == "broken_rotor_bar")
+        assert brb.detected
+
+
+class TestNoiselessCarrierWidth:
+    """Regression: the carrier-width walk must not saturate on clean data.
+
+    The walk stopped only when the skirt reached the noise floor. On near-noiseless
+    data that floor is hundreds of dB down, so it never stopped, saturated at its
+    cap, and blinded the entire slip range -- turning every real fault into a miss.
+    """
+
+    def test_clean_carrier_does_not_saturate(self):
+        rec, _ = synthesize(
+            MOTOR,
+            slip=0.04,
+            broken_bar_dbc=-40,
+            fs=2000,
+            duration_s=2.4,
+            noise_floor_dbc=-200.0,
+        )
+        halfwidth = _residual_spectrum(rec).carrier_halfwidth_hz()
+        assert halfwidth < 8.0, f"carrier width saturated at {halfwidth:.2f} Hz"
+
+    def test_fault_on_a_noiseless_short_record_is_still_found(self):
+        """The BBIM2023 conditions: 2 kHz, 2.4 s, ~4% slip, no noise."""
+        rec, _ = synthesize(
+            MOTOR,
+            slip=0.04,
+            broken_bar_dbc=-38,
+            fs=2000,
+            duration_s=2.4,
+            noise_floor_dbc=-200.0,
+        )
+        est = estimate_slip(_residual_spectrum(rec), MOTOR)
+        assert est.confident
+        assert est.slip == pytest.approx(0.04, abs=0.003)
