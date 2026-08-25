@@ -2,9 +2,10 @@
 
 **Motor Current Signature Analysis that knows when to refuse.**
 
+[![PyPI](https://img.shields.io/pypi/v/statorscope?color=blue)](https://pypi.org/project/statorscope/)
+[![Python](https://img.shields.io/pypi/pyversions/statorscope)](https://pypi.org/project/statorscope/)
 [![CI](https://github.com/ali-kin4/statorscope/actions/workflows/ci.yml/badge.svg)](https://github.com/ali-kin4/statorscope/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://pypi.org/project/statorscope/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![License](https://img.shields.io/pypi/l/statorscope?color=blue)](LICENSE)
 
 Detect broken rotor bars, stator inter-turn faults and air-gap eccentricity from
 three-phase motor current — and get told, up front, when your acquisition
